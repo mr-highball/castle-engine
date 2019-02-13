@@ -393,6 +393,10 @@ begin
       else
         DraggingMode := dmTranslate;
       Exit(ExclusiveEvents);
+    end
+    else
+    begin
+      //todo - determine if we need to perform 3d interaction with widgets
     end;
 
     PendingMove := TVector2.Zero;
@@ -628,8 +632,19 @@ begin
 
       Exit(ExclusiveEvents);
     end;
-  end;
+  end
+  else if Frame.Mode = moInteract then
+  begin
+    //todo - otherwise check for scene interaction, ie. zoom/pan/rotate camera;
 
+    (*
+      below is where we could either implement some more nested procs or
+      call out to some handler which knows how to process certain behavior
+      on a camera... leaning towards that since it would be easier to merge
+      if upstream gets changed quite a bit for commits, michalis seems to be
+      pretty busy... :)
+    *)
+  end;
   UpdateCursor;
 end;
 
