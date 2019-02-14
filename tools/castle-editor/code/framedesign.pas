@@ -30,7 +30,8 @@ uses
   // CGE units
   CastleControl, CastleUIControls, CastlePropEdits, CastleDialogs,
   CastleSceneCore, CastleKeysMouse, CastleVectors, CastleRectangles,
-  CastleSceneManager, FrameAnchors, CastleControls, CastleTiledMap;
+  CastleSceneManager, FrameAnchors, CastleControls, CastleTiledMap,
+  cge.utils.camera;
 
 type
   { Frame to visually design component hierarchy. }
@@ -127,6 +128,7 @@ type
       InsideToggleModeClick: Boolean;
       ControlsTreeNodeUnderMouse: TTreeNode;
       ControlsTreeNodeUnderMouseSide: TTreeNodeSide;
+      FCameraController: ICameraController;
 
     procedure CastleControlResize(Sender: TObject);
     function ComponentCaption(const C: TComponent): String;
@@ -212,7 +214,7 @@ uses // use Windows unit with FPC 3.0.x, to get TSplitRectType enums
   CastleComponentSerialize, CastleTransform, CastleUtils, Castle2DSceneManager,
   CastleURIUtils, CastleStringUtils, CastleGLUtils, CastleColors, CastleCameras,
   CastleClassUtils,
-  EditorUtils;
+  EditorUtils, cge.utils.camera.base;
 
 {$R *.lfm}
 
@@ -397,6 +399,8 @@ begin
     else
     begin
       //todo - determine if we need to perform 3d interaction with widgets
+      //**change up code to use TInputRelease rather than TkeysPressed**
+      CameraEventFromInput(Event,nil);
     end;
 
     PendingMove := TVector2.Zero;
@@ -644,6 +648,7 @@ begin
       if upstream gets changed quite a bit for commits, michalis seems to be
       pretty busy... :)
     *)
+    FCameraController.HandleEvent(FCameraType,Event,nil);//todo - fix this up
   end;
   UpdateCursor;
 end;
@@ -813,11 +818,13 @@ begin
 
   //ChangeMode(moInteract);
   ChangeMode(moSelectTranslateResize); // most expected default, it seems
+  FCameraController:=TCameraControllerImpl.Create;
 end;
 
 destructor TDesignFrame.Destroy;
 begin
   FreeAndNil(TreeNodeMap);
+  FCameraController:=nil;
   inherited Destroy;
 end;
 

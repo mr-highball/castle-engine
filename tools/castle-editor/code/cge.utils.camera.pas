@@ -19,7 +19,8 @@ type
   *)
   TCameraEventType = (
     ceNone,
-    ceZoom,
+    ceZoomIn,
+    ceZoomOut,
     cePan,
     ceRotate
   );
@@ -32,7 +33,7 @@ type
     ['{950D8E5B-C358-4978-BE1B-CFC7725606BE}']
     //property methods
     function GetOrigin: TVector3;
-    procedure SetOrigin(AValue: TVector3);
+    procedure SetOrigin(Const AValue: TVector3);
 
     //properties
     (*
@@ -43,26 +44,73 @@ type
     property Origin : TVector3 read GetOrigin write SetOrigin;
 
     //methods
-    procedure HandleEvent(Const AEvent:TCameraEventType;
+    (*
+      handles all types of camera events correctly repositioning
+      the provided camera
+    *)
+    procedure HandleEvent(Const AType:TCameraEventType;
       Const AInput:TInputMotion;Const ACamera:TCamera);
+
+    (*
+      specialized zoom method allowing an amount, will assume zoom in
+      if invalid event type is used
+    *)
+    procedure Zoom(Const AInput:TInputMotion;Const ACamera:TCamera;
+      Const AType:TCameraEventType=ceZoomIn;Const AFactor:Integer=1);
+
+    (*
+      specialized pan method allowing pan factor
+    *)
+    procedure Pan(Const AInput:TInputMotion;Const ACamera:TCamera;
+      Const AFactor:Integer=1);
+
+    (*
+      specialized rotate method allowing rotate factor
+    *)
+    procedure Rotate(Const AInput:TInputMotion;Const ACamera:TCamera;
+      Const AFactor:Integer=1);
   end;
 
   (*
     helper method for returning the proper event type based on the type
     of motion being performed by the end user
   *)
-  function CameraEventFromInput(Const AInput:TInputMotion):TCameraEventType;
+  function CameraEventFromInput(Const AKeys:TKeysPressed;
+    Const AInput:TInputMotion):TCameraEventType;
 
 implementation
+uses
+  CastleLog;
 
-function CameraEventFromInput(const AInput: TInputMotion): TCameraEventType;
+function CameraEventFromInput(Const AKeys:TKeysPressed;
+  const AInput: TInputMotion): TCameraEventType;
 begin
   Result:=ceNone;
   try
-    //todo - need check old pos and new pos with keyboard state to determine
-    //       what type of event is being performed (if any)
+    //no buttons return none
+    if AInput.Pressed=[] then
+      Exit;
+
+    //pan state is middle mouse and shift to mimic blender
+    if (AInput.Pressed=[mbMiddle]) and AKeys.Keys[keyShift] then
+      Exit(cePan)
+    //rotate occurs when middle mouse is used but no shift key is pressed
+    else if (AInput=[mbMiddle]) and not AKeys[keyShift] then
+      Exit(ceRotate)
+    //while most people will use the scroll wheel to zoom in and out,
+    //here are some alternate methods by using the shift and either
+    //left or right mouse button
+    else if (AInput=[mbLeft] or AInput=[mbRight]) and AKeys[keyShift] then
+    begin
+      if AInput.OldPosition.Y < AInput.Position.Y then
+        Exit(ceZoomIn)
+      else
+        Exit(ceZoomOut);
+    end;
   except on E:Exception do
-    //todo - write to the castle log that an error has occurred
+    //determine if castle log is initialized or not before writing
+    if Log then
+      WritelnLog(E.Message);
   end;
 end;
 
