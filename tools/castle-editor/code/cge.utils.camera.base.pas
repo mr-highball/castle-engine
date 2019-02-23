@@ -112,7 +112,7 @@ begin
   LDeltaX:=AInput.Position.X - AInput.OldPosition.X;
   LRad:=arctan2(LDeltaY,LDeltaX);
 
-  //get quaternian
+  //get quaternion
   LQuat:=QuatFromAxisAngle(
     FOrigin,
     LRad,
@@ -120,7 +120,7 @@ begin
   );
   LOldPos:=ACamera.Position;
   //copied from CastleCameras TExamineCamera.SetViewSetView
-  //ACamera.Position:=LQuat.Rotate(ACamera.Position);
+  //ACamera.Position:=LQuat.Rotate(ACamera.Position); //not really doing anything, need to read up on this
   LNewPos:=LOldPos;
   LNewPos.X:=ACamera.Position.X + 1;
   ACamera.Position:=LNewPos;
