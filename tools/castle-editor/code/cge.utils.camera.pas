@@ -25,6 +25,8 @@ type
     ceRotate
   );
 
+  //todo - change factors to singles not integers
+
   { ICameraController }
   (*
     main interface for interacting with a castle design scene
@@ -49,7 +51,7 @@ type
       the provided camera
     *)
     procedure HandleEvent(Const AType:TCameraEventType;
-      Const AInput:TInputMotion;Const ACamera:TCamera);
+      Const AInput:TInputMotion;Const ACamera:TCamera;Const AFactor:Integer=1);
 
     (*
       specialized zoom method allowing an amount, will assume zoom in
@@ -75,38 +77,49 @@ type
     helper method for returning the proper event type based on the type
     of motion being performed by the end user
   *)
-  function CameraEventFromInput(Const AKeys:TKeysPressed;
+  function CameraEventFromInput(Const AEvent:TInputPressRelease;
     Const AInput:TInputMotion):TCameraEventType;
 
 implementation
 uses
   CastleLog;
 
-function CameraEventFromInput(Const AKeys:TKeysPressed;
+function CameraEventFromInput(Const AEvent:TInputPressRelease;
   const AInput: TInputMotion): TCameraEventType;
 begin
   Result:=ceNone;
   try
-    //no buttons return none
+    //use the input motion pressed set to see if no operation, exit if so
     if AInput.Pressed=[] then
       Exit;
 
+    //todo - we've switched form passing just the mouse buttons set
+    //to handle events easier, but the InputPressRelease event is either
+    //a mouse event, or button event, so the getting the keys and the buttons
+    //seems to be a problem, may need to switch this method to take TMouseButtons
+    //and a TKeys set or something...
+
     //pan state is middle mouse and shift to mimic blender
-    if (AInput.Pressed=[mbMiddle]) and AKeys.Keys[keyShift] then
+    if (AEvent.IsMouseButton(mbMiddle)) and (mkShift in AEvent.ModifiersDown) then
       Exit(cePan)
     //rotate occurs when middle mouse is used but no shift key is pressed
-    else if (AInput=[mbMiddle]) and not AKeys[keyShift] then
+    else if (AEvent.IsMouseButton(mbMiddle)) and not(mkShift in AEvent.ModifiersDown) then
       Exit(ceRotate)
     //while most people will use the scroll wheel to zoom in and out,
     //here are some alternate methods by using the shift and either
     //left or right mouse button
-    else if (AInput=[mbLeft] or AInput=[mbRight]) and AKeys[keyShift] then
+    else if ((AEvent.IsMouseButton(mbLeft)) or (AEvent.IsMouseButton(mbRight))) and (mkShift in AEvent.ModifiersDown) then
     begin
       if AInput.OldPosition.Y < AInput.Position.Y then
         Exit(ceZoomIn)
       else
         Exit(ceZoomOut);
-    end;
+    end
+    //return standard zoom operations from mousewheel
+    else if AEvent.MouseWheel=mwDown then
+      Exit(ceZoomOut)
+    else if AEvent.MouseWheel=mwUp then
+      Exit(ceZoomIn);
   except on E:Exception do
     //determine if castle log is initialized or not before writing
     if Log then

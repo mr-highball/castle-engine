@@ -9,7 +9,8 @@ uses
   SysUtils,
   CastleKeysMouse,
   CastleVectors,
-  CastleLog,
+  CastleLog, CastleVectorsInternalSingle,
+  CastleCameras,
   cge.utils.camera;
 
 type
@@ -40,7 +41,7 @@ type
 
     //methods
     procedure HandleEvent(Const AType:TCameraEventType;
-      Const AInput:TInputMotion;Const ACamera:TCamera);
+      Const AInput:TInputMotion;Const ACamera:TCamera;Const AFactor:Integer=1);
     procedure Zoom(Const AInput:TInputMotion;Const ACamera:TCamera;
       Const AType:TCameraEventType=ceZoomIn;Const AFactor:Integer=1);
     procedure Pan(Const AInput:TInputMotion;Const ACamera:TCamera;
@@ -52,6 +53,9 @@ type
   end;
 
 implementation
+uses
+  Math,
+  CastleQuaternions;
 
 { TCameraControllerImpl }
 
@@ -66,21 +70,60 @@ begin
 end;
 
 procedure TCameraControllerImpl.DoZoom(Const AInput:TInputMotion;
-  const ACamera: TCamera; const AType: TCameraEventType);
+  const ACamera: TCamera; const AType: TCameraEventType;Const AFactor:Integer=1);
 begin
   //todo - handle zooming
 end;
 
 procedure TCameraControllerImpl.DoPan(const AInput: TInputMotion;
   const ACamera: TCamera; const AFactor: Integer);
+var
+  LPos: TVector3;
+  LDelta: TGenericScalar;
 begin
   //todo - handle panning
+  LPos:=ACamera.Position;
+
+  //find new x position
+  LDelta:=AInput.Position.X - AInput.OldPosition.X;
+  LPos.X:=LPos.X + (LDelta * AFactor);
+
+  //find new y position
+  LDelta:=AInput.Position.Y - AInput.OldPosition.Y;
+  LPos.Y:=LPos.Y + (LDelta * AFactor);
+
+  //update camera position
+  ACamera.Position:=LPos;
 end;
 
 procedure TCameraControllerImpl.DoRotate(const AInput: TInputMotion;
   const ACamera: TCamera; const AFactor: Integer);
+var
+  LQuat: TQuaternion;
+  LDeltaY, LDeltaX: TGenericScalar;
+  LRad: float;
+  LOldPos, LNewPos: TVector3;
 begin
   //todo - handle rotation
+
+  //find deltas to calculate angle radians
+  //https://stackoverflow.com/questions/15994194/how-to-convert-x-y-coordinates-to-an-angle
+  LDeltaY:=AInput.Position.Y - AInput.OldPosition.Y;
+  LDeltaX:=AInput.Position.X - AInput.OldPosition.X;
+  LRad:=arctan2(LDeltaY,LDeltaX);
+
+  //get quaternian
+  LQuat:=QuatFromAxisAngle(
+    FOrigin,
+    LRad,
+    True
+  );
+  LOldPos:=ACamera.Position;
+  //copied from CastleCameras TExamineCamera.SetViewSetView
+  //ACamera.Position:=LQuat.Rotate(ACamera.Position);
+  LNewPos:=LOldPos;
+  LNewPos.X:=ACamera.Position.X + 1;
+  ACamera.Position:=LNewPos;
 end;
 
 procedure TCameraControllerImpl.HandleEvent(const AType: TCameraEventType;
@@ -112,7 +155,7 @@ procedure TCameraControllerImpl.Pan(const AInput: TInputMotion;
   const ACamera: TCamera; const AFactor: Integer);
 begin
   try
-    DoPan(AInput,ACamera,AType,AFactor);
+    DoPan(AInput,ACamera,AFactor);
   except on E:Exception do
     if Log then
       WriteLnLog(Self.Classname + '::DoPan::' + E.Message);
@@ -123,7 +166,7 @@ procedure TCameraControllerImpl.Rotate(const AInput: TInputMotion;
   const ACamera: TCamera; const AFactor: Integer);
 begin
   try
-    DoRotate(AInput,ACamera,AType,AFactor);
+    DoRotate(AInput,ACamera,AFactor);
   except on E:Exception do
     if Log then
       WriteLnLog(Self.Classname + '::DoRotate::' + E.Message);

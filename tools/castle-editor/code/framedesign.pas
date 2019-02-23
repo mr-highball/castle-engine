@@ -78,8 +78,15 @@ type
   private
     type
       { UI layer that can intercept mouse clicks and drags. }
+
+      { TDesignerLayer }
+
       TDesignerLayer = class(TCastleUserInterface)
       strict private
+        FInputRelease: TInputPressRelease;
+        FInputMotion: TInputMotion;
+        FReleased: Boolean;
+        FCameraController: ICameraController;
         type
           TDraggingMode = (dmNone, dmTranslate, dmResize);
         var
@@ -97,6 +104,7 @@ type
       public
         Frame: TDesignFrame;
         constructor Create(AOwner: TComponent); override;
+        destructor Destroy; override;
         function Press(const Event: TInputPressRelease): Boolean; override;
         function Release(const Event: TInputPressRelease): Boolean; override;
         function Motion(const Event: TInputMotion): Boolean; override;
@@ -128,7 +136,6 @@ type
       InsideToggleModeClick: Boolean;
       ControlsTreeNodeUnderMouse: TTreeNode;
       ControlsTreeNodeUnderMouseSide: TTreeNodeSide;
-      FCameraController: ICameraController;
 
     procedure CastleControlResize(Sender: TObject);
     function ComponentCaption(const C: TComponent): String;
@@ -243,6 +250,8 @@ end;
 constructor TDesignFrame.TDesignerLayer.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  FCameraController:=TCameraControllerImpl.Create;
+  FReleased:=True;
   FullSize := true;
 
   RectHover := TCastleRectangleControl.Create(Self);
@@ -272,6 +281,12 @@ begin
   LabelSelected.FontSize := 15;
   LabelSelected.EnableUIScaling := false;
   RectSelected.InsertFront(LabelSelected);
+end;
+
+destructor TDesignFrame.TDesignerLayer.Destroy;
+begin
+  FCameraController:=nil;
+  inherited Destroy;
 end;
 
 function TDesignFrame.TDesignerLayer.HoverUserInterface(
@@ -373,6 +388,8 @@ function TDesignFrame.TDesignerLayer.Press(
 var
   UI: TCastleUserInterface;
 begin
+  FInputRelease:=Event;
+  FReleased:=False;
   Result := inherited Press(Event);
   if Result then Exit;
 
@@ -395,12 +412,6 @@ begin
       else
         DraggingMode := dmTranslate;
       Exit(ExclusiveEvents);
-    end
-    else
-    begin
-      //todo - determine if we need to perform 3d interaction with widgets
-      //**change up code to use TInputRelease rather than TkeysPressed**
-      CameraEventFromInput(Event,nil);
     end;
 
     PendingMove := TVector2.Zero;
@@ -409,6 +420,7 @@ end;
 
 function TDesignFrame.TDesignerLayer.Release(const Event: TInputPressRelease): Boolean;
 begin
+  FReleased:=True;
   Result := inherited Press(Event);
   if Result then Exit;
 
@@ -596,7 +608,21 @@ var
   UI: TCastleUserInterface;
   Move: TVector2;
   Snap: Single;
+  LCameraType: TCameraEventType;
+
+  procedure HandleCameraEvent(const ASceneManager: TCastleSceneManager);
+  begin
+    //handle the camera event with the camera controller
+    FCameraController.HandleEvent(
+      LCameraType,
+      FInputMotion,
+      ASceneManager.RequiredCamera
+    );
+  end;
+
 begin
+  //record the input motion variable
+  FInputMotion:=Event;
   Result := inherited Motion(Event);
   if Result then Exit;
 
@@ -648,7 +674,9 @@ begin
       if upstream gets changed quite a bit for commits, michalis seems to be
       pretty busy... :)
     *)
-    FCameraController.HandleEvent(FCameraType,Event,nil);//todo - fix this up
+    LCameraType:=CameraEventFromInput(FInputRelease,Event);
+    if (LCameraType<>ceNone) and (not FReleased) then
+      Frame.ForEachSelectedSceneManager(@HandleCameraEvent);
   end;
   UpdateCursor;
 end;
@@ -818,13 +846,11 @@ begin
 
   //ChangeMode(moInteract);
   ChangeMode(moSelectTranslateResize); // most expected default, it seems
-  FCameraController:=TCameraControllerImpl.Create;
 end;
 
 destructor TDesignFrame.Destroy;
 begin
   FreeAndNil(TreeNodeMap);
-  FCameraController:=nil;
   inherited Destroy;
 end;
 
