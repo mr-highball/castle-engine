@@ -548,7 +548,7 @@ procedure TTextureCoordinateRenderer.RenderCoordinateBegin;
           correct sizes). Output this on log, since it's done by renderer,
           potentially many times for a frame.
           Nothing more intelligent now than warning about this is done. }
-        WritelnLog('TexCoord', Format('Warning: Transforming tex coords to WORLDSPACE* under Mesa3D may mess up static cube maps (ImageCubeMapTexture and ComposedCubeMapTexture, but not GeneratedCubeMapTexure)',
+        WritelnWarning('TexCoord', Format('Transforming tex coords to WORLDSPACE* under Mesa3D may mess up static cube maps (ImageCubeMapTexture and ComposedCubeMapTexture, but not GeneratedCubeMapTexure)',
           [SuccessName, FailName]));
       *)
     end;
@@ -929,7 +929,7 @@ begin
       if (Shape.ProgramCache[Renderer.Pass] = nil) or
          (Shape.ProgramCache[Renderer.Pass].Hash <> Shader.CodeHash) then
       begin
-        if Log and LogRenderer then
+        if LogRenderer then
           WritelnLog('GLSL', 'Creating shaders for shape "%s" (new: %s, lights outside VRML/X3D: %d, pass: %d)',
             [Shape.NiceName,
              BoolToStr((Shape.ProgramCache[Renderer.Pass] = nil) or

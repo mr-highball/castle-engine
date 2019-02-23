@@ -702,10 +702,9 @@ begin
       except
         on E: EModelsStructureDifferent do
         begin
-          if Log then
-            WritelnLog('TNodeInterpolator', Format(
-              'Nodes %d and %d structurally different, so animation will not be smoothed between them: ',
-              [I - 1, I]) + E.Message);
+          WritelnLog('TNodeInterpolator', Format(
+            'Nodes %d and %d structurally different, so animation will not be smoothed between them: ',
+            [I - 1, I]) + E.Message);
         end;
       end;
 
@@ -1012,10 +1011,11 @@ var
     Switch := TSwitchNode.Create(
       AnimationX3DName + '_Switch_ChooseAnimationFrame', BaseUrl);
     for I := 0 to NodesCount - 1 do
-      { Add using FdChildren.Add, not AddChildren, because duplicates
-        are possible below, in case two animation frames are exactly equal.
-        See e.g. evil squirrel in https://github.com/castle-engine/wyrd-forest }
-      Switch.FdChildren.Add(WrapRootNode(BakedAnimation.Nodes[I] as TX3DRootNode));
+      { Note that duplicates are possible below,
+        in case two animation frames are exactly equal.
+        See e.g. evil squirrel in https://github.com/castle-engine/wyrd-forest .
+        Fortunately AddChildren by default has AllowDuplicates. }
+      Switch.AddChildren(WrapRootNode(BakedAnimation.Nodes[I] as TX3DRootNode));
     Assert(Switch.FdChildren.Count = NodesCount);
 
     { we set whichChoice to 0 to see something before you run the animation }

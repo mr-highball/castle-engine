@@ -711,6 +711,7 @@ type
       calling @link(TCastleSceneCore.BeforeNodesFree) earlier,
       and call @link(TX3DField.Changed) after each change. }
     procedure InternalBeforeChange;
+    { @exclude }
     procedure InternalAfterChange;
   end;
 
@@ -1218,7 +1219,14 @@ begin
     Node.InternalSceneShape := nil
   else
   begin
-    Assert(Node.InternalSceneShape <> nil);
+    {$ifdef DEBUG}
+    //Assert(Node.InternalSceneShape <> nil);
+    if Node.InternalSceneShape = nil then
+    begin
+      raise EInternalError.CreateFmt('Calling %s.UnAssociateNode on X3D node that is already not associated with anything: %s',
+        [ClassName, Node.NiceName]);
+    end;
+    {$endif}
     Assert(Node.InternalSceneShape is TShapeTreeList);
     if TShapeTreeList(Node.InternalSceneShape).Count = 1 then
     begin
@@ -1315,7 +1323,17 @@ begin
        (AGeometry.CoordField.Value <> nil) then
       AssociateNode(AGeometry.CoordField.Value);
     if (AGeometry.TexCoordField <> nil) and
-       (AGeometry.TexCoordField.Value <> nil) then
+       (AGeometry.TexCoordField.Value <> nil) and
+       { TODO: This workarounds assertion failure in UnAssociateNode
+         when using shadow maps on a primitive, like Sphere.
+         Reproducible by view3dscene (open and close
+         demo-models/shadow_maps/primitives.x3dv )
+         and automatic tests (when TTestOpeningAndRendering3D.TestScene
+         opens and closes tests/data/warning_when_new_node_as_shadow_map_light.x3dv ).
+         The cause is unknown.
+         But in any case, associating with TMultiTextureCoordinateNode
+         is not really useful (we should associate with children of it). }
+       (not (AGeometry.TexCoordField.Value is TMultiTextureCoordinateNode)) then
       AssociateNode(AGeometry.TexCoordField.Value);
   end;
 end;
@@ -1354,7 +1372,8 @@ begin
        (AGeometry.CoordField.Value <> nil) then
       UnAssociateNode(AGeometry.CoordField.Value);
     if (AGeometry.TexCoordField <> nil) and
-       (AGeometry.TexCoordField.Value <> nil) then
+       (AGeometry.TexCoordField.Value <> nil) and
+       (not (AGeometry.TexCoordField.Value is TMultiTextureCoordinateNode)) then
       UnAssociateNode(AGeometry.TexCoordField.Value);
   end;
 end;
@@ -1431,7 +1450,7 @@ begin
     FOctreeTriangles := CreateTriangleOctree(
       OverrideOctreeLimits(FTriangleOctreeLimits),
       InternalTriangleOctreeProgressTitle);
-    if Log and LogChanges then
+    if LogChanges then
       WritelnLog('X3D changes (octree)', Format(
         'Shape(%s).OctreeTriangles updated', [PointerToStr(Self)]));
   end;
@@ -1633,7 +1652,7 @@ end;
 
 procedure TShape.FreeProxy;
 begin
-  if Log and LogChanges and
+  if LogChanges and
     { OriginalGeometry should always be <> nil, but just in case
       (e.g. running from destructor, or with bad state) check. }
     (OriginalGeometry <> nil) and
@@ -1895,7 +1914,7 @@ begin
   begin
     if DisableAutoDynamicGeometry = 0 then
     begin
-      if (not DynamicGeometry) and Log then
+      if not DynamicGeometry then
         WritelnLog('Shape', Format('Shape with geometry %s detected as dynamic, will use more crude collision detection and more suitable rendering',
           [OriginalGeometry.X3DType]));
       DynamicGeometry := true;
@@ -2180,7 +2199,7 @@ begin
        (FNormalsOverTriangulate = OverTriangulate)
      ) then
   begin
-    if Log and LogShapes then
+    if LogShapes then
       WritelnLog('Normals', 'Calculating shape smooth normals');
 
     { Free previous normals }
@@ -2212,7 +2231,7 @@ begin
        (FNormalsOverTriangulate = OverTriangulate)
      ) then
   begin
-    if Log and LogShapes then
+    if LogShapes then
       WritelnLog('Normals', 'Calculating shape flat normals');
 
     { Free previous normals }
@@ -2247,7 +2266,7 @@ begin
        (FNormalsCreaseAngle = CreaseAngle)
      ) then
   begin
-    if Log and LogShapes then
+    if LogShapes then
       WritelnLog('Normals', 'Calculating shape CreaseAngle normals');
 
     { Free previous normals }

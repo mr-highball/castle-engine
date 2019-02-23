@@ -307,10 +307,9 @@ begin
     Camera := TWalkCamera.Create(Self);
   end;
 
-  { Do not add using AddChildren, use FdChildren.Add, to enable multiple
-    instances of this node on a list. }
-  ScreenEffectsRoot.FdChildren.Add(Node);
-  ScreenEffectsRoot.FdChildren.Changed;
+  { Note that AddChildren by default has AllowDuplicates=true,
+    and enables multiple instances of this node on a list. That's good. }
+  ScreenEffectsRoot.AddChildren(Node);
 
   { Send CameraChanged to activate ProximitySensors inside new nodes. }
   World.CameraChanged(Camera);
@@ -529,11 +528,10 @@ var
       ScreenEffectRTT.Stencil := GLFeatures.ShadowVolumesPossible;
       ScreenEffectRTT.GLContextOpen;
 
-      if Log then
-        WritelnLog('Screen effects', Format('Created texture for screen effects, with size %d x %d, with depth texture: %s',
-          [ ScreenEffectTextureWidth,
-            ScreenEffectTextureHeight,
-            BoolToStr(CurrentScreenEffectsNeedDepth, true) ]));
+      WritelnLog('Screen effects', Format('Created texture for screen effects, with size %d x %d, with depth texture: %s',
+        [ ScreenEffectTextureWidth,
+          ScreenEffectTextureHeight,
+          BoolToStr(CurrentScreenEffectsNeedDepth, true) ]));
     end;
 
     RenderContext.Viewport := SR;

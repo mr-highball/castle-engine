@@ -13,33 +13,99 @@
   ----------------------------------------------------------------------------
 }
 
-{ Creating Android package. }
-unit ToolAndroidPackage;
+{ Compiling, packaging, installing, running on Android. }
+unit ToolAndroid;
 
 interface
 
-uses CastleUtils, CastleStringUtils,
+uses Classes,
+  CastleUtils, CastleStringUtils,
   ToolUtils, ToolArchitectures, ToolCompile, ToolProject;
 
-procedure CreateAndroidPackage(const Project: TCastleProject;
-  const OS: TOS; const CPU: TCPU; const SuggestedPackageMode: TCompilationMode;
+{ Compile (for all possible Android CPUs) Android unit or library.
+  When Project <> nil, we assume we compile libraries (one of more .so files),
+  and their final names must match Project.AndroidLibraryFile(CPU). }
+procedure CompileAndroid(const Project: TCastleProject;
+  const Mode: TCompilationMode; const WorkingDirectory, CompileFile: string;
+  const SearchPaths, LibraryPaths, ExtraOptions: TStrings);
+
+{ Android CPU values supported by the current compiler. }
+function DetectAndroidCPUS: TCPUS;
+
+{ Convert CPU to an architecture name understood by Android,
+  see TARGET_ARCH_ABI at https://developer.android.com/ndk/guides/android_mk . }
+function CPUToAndroidArchitecture(const CPU: TCPU): String;
+
+procedure PackageAndroid(const Project: TCastleProject;
+  const OS: TOS; const CPUS: TCPUS; const SuggestedPackageMode: TCompilationMode;
   const Files: TCastleStringList);
 
-procedure InstallAndroidPackage(const Name, QualifiedName, OutputPath: string);
+procedure InstallAndroid(const Name, QualifiedName, OutputPath: string);
 
-procedure RunAndroidPackage(const Project: TCastleProject);
+procedure RunAndroid(const Project: TCastleProject);
 
 implementation
 
-uses SysUtils, Classes, DOM, XMLWrite,
+uses SysUtils, DOM, XMLWrite,
   CastleURIUtils, CastleXMLUtils, CastleLog, CastleFilesUtils, CastleImages,
-  ToolEmbeddedImages, ExtInterpolation;
+  ToolEmbeddedImages, ToolFPCVersion;
+
+var
+  DetectAndroidCPUSCached: TCPUS;
+
+function DetectAndroidCPUS: TCPUS;
+begin
+  if DetectAndroidCPUSCached = [] then
+  begin
+    DetectAndroidCPUSCached := [Arm];
+    if FPCVersion.AtLeast(3, 3, 1) then
+      Include(DetectAndroidCPUSCached, Aarch64)
+    else
+      WritelnWarning('FPC version ' + FPCVersion.ToString + ' does not support compiling for 64-bit Android (Aarch64). Resulting APK will only support 32-bit Android devices.');
+  end;
+  Result := DetectAndroidCPUSCached;
+end;
+
+procedure CompileAndroid(const Project: TCastleProject;
+  const Mode: TCompilationMode; const WorkingDirectory, CompileFile: string;
+  const SearchPaths, LibraryPaths, ExtraOptions: TStrings);
+var
+  CPU: TCPU;
+begin
+  for CPU in DetectAndroidCPUS do
+  begin
+    Compile(Android, CPU, { Plugin } false,
+      Mode, WorkingDirectory, CompileFile, SearchPaths, LibraryPaths, ExtraOptions);
+    if Project <> nil then
+    begin
+      CheckRenameFile(Project.AndroidLibraryFile(cpuNone), Project.AndroidLibraryFile(CPU));
+      Writeln('Compiled library for Android in ', Project.AndroidLibraryFile(CPU, false));
+    end;
+  end;
+end;
 
 const
   PackageModeToName: array [TCompilationMode] of string = (
     'release',
     'release' { no valgrind support for Android },
     'debug');
+
+function CPUToAndroidArchitecture(const CPU: TCPU): String;
+begin
+  case CPU of
+    { The armeabi-v7a is our proper platform, with hard floats.
+      See https://developer.android.com/ndk/guides/application_mk.html
+      and http://stackoverflow.com/questions/24948008/linking-so-file-within-android-ndk
+      and *do not* confuse this with (removed now) armeabi-v7a-hard ABI:
+      https://android.googlesource.com/platform/ndk/+show/353e653824b79c43b948429870d0abeedebde386/docs/HardFloatAbi.md
+    }
+    arm    : Result := 'armeabi-v7a';
+    aarch64: Result := 'arm64-v8a';
+    i386   : Result := 'x86';
+    x86_64 : Result := 'x86_64';
+    else raise Exception.CreateFmt('Android does not support CPU "%s"', [CPUToString(CPU)]);
+  end;
+end;
 
 function Capitalize(const S: string): string;
 begin
@@ -119,8 +185,8 @@ begin
     Result := FinishExeSearch(ExeName, BundleName, EnvVarName, Required);
 end;
 
-procedure CreateAndroidPackage(const Project: TCastleProject;
-  const OS: TOS; const CPU: TCPU; const SuggestedPackageMode: TCompilationMode;
+procedure PackageAndroid(const Project: TCastleProject;
+  const OS: TOS; const CPUS: TCPUS; const SuggestedPackageMode: TCompilationMode;
   const Files: TCastleStringList);
 var
   AndroidProjectPath: string;
@@ -329,30 +395,21 @@ var
   end;
 
   procedure GenerateLibrary;
+  var
+    CPU: TCPU;
+    JniPath, LibraryWithoutCPU, LibraryFileName: String;
   begin
-    PackageSmartCopyFile(Project.AndroidLibraryFile,
-      'app' + PathDelim + 'src' + PathDelim + 'main' + PathDelim +
+    JniPath := 'app' + PathDelim + 'src' + PathDelim + 'main' + PathDelim +
       { Place precompiled libs in jni/ , ndk-build will find them there. }
-      'jni' + PathDelim + 'armeabi-v7a' + PathDelim + ExtractFileName(Project.AndroidLibraryFile));
-  end;
+      'jni' + PathDelim;
+    LibraryWithoutCPU := ExtractFileName(Project.AndroidLibraryFile(cpuNone));
 
-  { Run "ndk-build", this moves our .so to the final location in jniLibs,
-    also setting up debug stuff for ndk-gdb to work. }
-  procedure RunNdkBuild;
-  begin
-    { Place precompiled .so files in jniLibs/ to make them picked up by Gradle.
-      See http://stackoverflow.com/questions/27532062/include-pre-compiled-static-library-using-ndk
-      http://stackoverflow.com/a/28430178
-
-      Possibly we could also let the ndk-build to place them in libs/,
-      as it does by default.
-
-      We know we should not let them be only in jni/ subdir,
-      as they would not be picked by Gradle from there. But that's
-      what ndk-build does: it copies them from jni/ to another directory. }
-
-    RunCommandSimple(AndroidProjectPath + 'app' + PathDelim + 'src' + PathDelim + 'main',
-      NdkBuildExe, ['--silent', 'NDK_LIBS_OUT=./jniLibs']);
+    for CPU in CPUS do
+    begin
+      LibraryFileName := Project.AndroidLibraryFile(CPU);
+      PackageSmartCopyFile(LibraryFileName,
+        JniPath + CPUToAndroidArchitecture(CPU) + PathDelim + LibraryWithoutCPU);
+    end;
   end;
 
 var
@@ -442,6 +499,32 @@ var
       WritelnWarning('Android', 'Information about the keys to sign release Android package not found, because "' + SourceAntProperties + '" file does not exist. See ' + WWW + ' for documentation how to create and use keys to sign release Android apk. Falling back to creating debug apk.');
       PackageMode := cmDebug;
     end;
+  end;
+
+  { Run "ndk-build", this moves our .so to the final location in jniLibs,
+    also preserving our debug symbols, so that ndk-gdb remains useful.
+
+    TODO: Calling ndk-build directly is a hack,
+    since Gradle will later call ndk-build anyway.
+    But without calling ndk-build directly
+    it seems impossible to have debug symbols to our prebuilt
+    library correctly preserced, such that ndk-gdb works and sees our symbols.
+  }
+  procedure RunNdkBuild;
+  begin
+    { Place precompiled .so files in jniLibs/ to make them picked up by Gradle.
+      See http://stackoverflow.com/questions/27532062/include-pre-compiled-static-library-using-ndk
+      http://stackoverflow.com/a/28430178
+
+      Possibly we could also let the ndk-build to place them in libs/,
+      as it does by default.
+
+      We know we should not let them be only in jni/ subdir,
+      as they would not be picked by Gradle from there. But that's
+      what ndk-build does: it copies them from jni/ to another directory. }
+
+    RunCommandSimple(AndroidProjectPath + 'app' + PathDelim + 'src' + PathDelim + 'main',
+      NdkBuildExe, ['--silent', 'NDK_LIBS_OUT=./jniLibs']);
   end;
 
   { Run Gradle to actually build the final apk. }
@@ -535,7 +618,7 @@ begin
   Writeln('Build ' + ApkName);
 end;
 
-procedure InstallAndroidPackage(const Name, QualifiedName, OutputPath: string);
+procedure InstallAndroid(const Name, QualifiedName, OutputPath: string);
 var
   ApkDebugName, ApkReleaseName, ApkName: string;
 begin
@@ -560,7 +643,7 @@ begin
   Writeln('Install successful.');
 end;
 
-procedure RunAndroidPackage(const Project: TCastleProject);
+procedure RunAndroid(const Project: TCastleProject);
 var
   ActivityName, LogTag: string;
 begin

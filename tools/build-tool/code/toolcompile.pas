@@ -52,62 +52,7 @@ implementation
 
 uses SysUtils, Process,
   CastleUtils, CastleLog, CastleFilesUtils, CastleFindFiles,
-  ToolUtils;
-
-type
-  TFPCVersion = object
-    Major, Minor, Release: Integer;
-    IsCodeTyphon: Boolean;
-    function AtLeast(const AMajor, AMinor, ARelease: Integer): boolean;
-  end;
-
-function TFPCVersion.AtLeast(const AMajor, AMinor, ARelease: Integer): boolean;
-begin
-  Result :=
-      (AMajor < Major) or
-    ( (AMajor = Major) and (AMinor < Minor) ) or
-    ( (AMajor = Major) and (AMinor = Minor) and (ARelease <= Release) );
-end;
-
-{ Get FPC version by running "fpc -iV". }
-function FPCVersion: TFPCVersion;
-var
-  FpcOutput, FpcExe, Token: string;
-  FpcExitStatus, SeekPos: Integer;
-begin
-  FpcExe := FindExe('fpc');
-  if FpcExe = '' then
-    raise Exception.Create('Cannot find "fpc" program on $PATH. Make sure it is installed, and available on $PATH');
-  MyRunCommandIndir(GetCurrentDir, FpcExe, ['-iV'], FpcOutput, FpcExitStatus);
-  if FpcExitStatus <> 0 then
-    raise Exception.Create('Failed to query FPC version');
-
-  Result.IsCodeTyphon := Pos('codetyphon', LowerCase(FpcExe)) > 0;
-
-  { parse output into 3 numbers }
-  FpcOutput := Trim(FpcOutput);
-  SeekPos := 1;
-
-  Token := NextToken(FpcOutput, SeekPos, ['.', '-']);
-  if Token = '' then
-    raise Exception.CreateFmt('Failed to query FPC version: no major version in response "%s"', [FpcOutput]);
-  Result.Major := StrToInt(Token);
-
-  Token := NextToken(FpcOutput, SeekPos, ['.', '-']);
-  if Token = '' then
-    raise Exception.CreateFmt('Failed to query FPC version: no minor version in response "%s"', [FpcOutput]);
-  Result.Minor := StrToInt(Token);
-
-  Token := NextToken(FpcOutput, SeekPos, ['.', '-']);
-  if Token = '' then
-  begin
-    WritelnWarning('FPC', 'Invalid FPC version: Failed to query FPC version: no release version in response "%s", assuming 0', [FpcOutput]);
-    Result.Release := 0;
-  end else
-    Result.Release := StrToInt(Token);
-
-  Writeln(Format('FPC version: %d.%d.%d', [Result.Major, Result.Minor, Result.Release]));
-end;
+  ToolUtils, ToolFPCVersion;
 
 type
   TFPCVersionForIPhoneSimulatorChecked = class
@@ -519,17 +464,22 @@ begin
     case Mode of
       cmRelease:
         begin
-          { With FPC 3.0.3 on Darwin/aarch64 (physical iOS, 64-bit)
+          { Aarch64 optimizations exhibit bugs, on both iOS and Android:
+
+            iOS:
+            With FPC 3.0.3 on Darwin/aarch64 (physical iOS, 64-bit)
             programs compiled with -O1 or -O2 crash at start.
             Earlier engine version, Draw3x3 was doing something weird.
-            So disable optimizations.
 
-            This is confirmed to really be needed only on darwin/aarch64,
-            although Michalis simply never tested on darwin/arm.
-            For safety and consistency of testing, disable optimizations
-            on all iOS versions. }
-          //if (OS = darwin) and (CPU = aarch64) then
-          if IsIOS then
+            (This is confirmed to really be needed only on darwin/aarch64,
+            Michalis simply never tested on darwin/arm.)
+
+            Android:
+            Reading some PNG fails (testcase: Silhouette), at least with -O2.
+
+            Disable optimizations on Aarch64 now. }
+
+          if CPU = aarch64 then
             FpcOptions.Add('-O-')
           else
             FpcOptions.Add('-O2');
@@ -563,44 +513,42 @@ begin
       else raise EInternalError.Create('DoCompile: Mode?');
     end;
 
-    case OS of
-      Android:
-        begin
-          { Our platform is armeabi-v7a, see
-            data/android/base/app/src/main/jni/Application.mk .
-            Note: the option below seems not necessary when using -CfVFPV3?
-            At least, nothing crashes.
-            Possibly -CfVFPV3 implies this anyway. }
-          FpcOptions.Add('-CpARMV7A');
+    if (OS = Android) and (CPU = arm) then
+    begin
+      { Our platform is armeabi-v7a, see ToolAndroidPackage
+        comments about armeabi-v7a.
+        Note: the option below seems not necessary when using -CfVFPV3?
+        At least, nothing crashes.
+        Possibly -CfVFPV3 implies this anyway. }
+      FpcOptions.Add('-CpARMV7A');
 
-          { Necessary to work fast.
-            See https://github.com/castle-engine/castle-engine/wiki/Android-FAQ#notes-about-compiling-with-hard-floats--cfvfpv3 }
-          FpcOptions.Add('-CfVFPV3');
+      { Necessary to work fast.
+        See https://github.com/castle-engine/castle-engine/wiki/Android-FAQ#notes-about-compiling-with-hard-floats--cfvfpv3 }
+      FpcOptions.Add('-CfVFPV3');
 
-          { This allows to "sacrifice precision for performance"
-            according to http://wiki.freepascal.org/ARM_compiler_options .
+      { This allows to "sacrifice precision for performance"
+        according to http://wiki.freepascal.org/ARM_compiler_options .
 
-            But it causes too much precision loss?
-            escape_universe fails with
-            I/escape_universe( 7761): Exception: Exception "EInvalidGameConfig" :
-            I/escape_universe( 7761): Gun auto_fire_interval cannot be <= 0
+        But it causes too much precision loss?
+        escape_universe fails with
+        I/escape_universe( 7761): Exception: Exception "EInvalidGameConfig" :
+        I/escape_universe( 7761): Gun auto_fire_interval cannot be <= 0
 
-            Speed gain untested.
+        Speed gain untested.
 
-            For now unused. }
-          //FpcOptions.Add('-OoFASTMATH');
+        For now unused. }
+      //FpcOptions.Add('-OoFASTMATH');
 
-          { This should *not* be defined (when compiling our code or RTL).
-            It makes our code use -CaEABIHF/armeabi-v7a-hard
-            https://android.googlesource.com/platform/ndk/+/353e653824b79c43b948429870d0abeedebde386/docs/HardFloatAbi.md
-            which has incompatible call mechanism.
+      { This should *not* be defined (when compiling our code or RTL).
+        It makes our code use -CaEABIHF/armeabi-v7a-hard
+        https://android.googlesource.com/platform/ndk/+/353e653824b79c43b948429870d0abeedebde386/docs/HardFloatAbi.md
+        which has incompatible call mechanism.
 
-            And indeed, doing PlaySound crashes at alSourcef call (to OpenAL)
-            from TSound.SetMinGain. Reproducible with escape_universe.
+        And indeed, doing PlaySound crashes at alSourcef call (to OpenAL)
+        from TSound.SetMinGain. Reproducible with escape_universe.
 
-            fpcupdeluxe default cross-compiler to Android also uses this. }
-          //FpcOptions.Add('-CaEABIHF');
-        end;
+        fpcupdeluxe default cross-compiler to Android also uses this. }
+      //FpcOptions.Add('-CaEABIHF');
     end;
 
     if Plugin then

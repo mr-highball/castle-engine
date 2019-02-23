@@ -1954,12 +1954,11 @@ begin
 
   VarianceShadowMaps := ClassVarianceShadowMaps(Renderer.Attributes);
 
-  if Log then
-    WritelnLog('Shadows', Format('Variance Shadow Maps used: %s (Reasons: Attributes.Shadow sampling = %s, GLSL support = %s, texture_float support = %s)',
-      [ BoolToStr(VarianceShadowMaps, true),
-        ShadowSamplingNames[Renderer.Attributes.ShadowSampling],
-        GLSupportNames[GLFeatures.Shaders],
-        BoolToStr(GLFeatures.TextureFloat, true) ]));
+  WritelnLog('Shadows', Format('Variance Shadow Maps used: %s (Reasons: Attributes.Shadow sampling = %s, GLSL support = %s, texture_float support = %s)',
+    [ BoolToStr(VarianceShadowMaps, true),
+      ShadowSamplingNames[Renderer.Attributes.ShadowSampling],
+      GLSupportNames[GLFeatures.Shaders],
+      BoolToStr(GLFeatures.TextureFloat, true) ]));
 
   { TODO: fix TextureNode.FdSize.Value if needed }
   Size := TextureNode.FdSize.Value;
@@ -2088,25 +2087,22 @@ begin
         SavedDepthRange := RenderContext.DepthRange;
         RenderContext.DepthRange := drFull;
 
-        {$ifndef OpenGLES} // TODO-es
-        glPushAttrib(GL_POLYGON_BIT);
-          { enable polygon offset for everything (whole scene).
+        { Enable polygon offset for everything (whole scene).
 
-            VarianceShadowMaps notes: can offset be avoided in this case?
-            Practice (on "ATI Mobility Radeon HD 4300 Series") shows that
-            offset is still needed for VSM. Without offset, VSM has some noise,
-            and sunny_street demos have noise on walls. With offset, VSM is perfect. }
-          glEnable(GL_POLYGON_OFFSET_FILL); { saved by GL_POLYGON_BIT }
-          glEnable(GL_POLYGON_OFFSET_LINE); { saved by GL_POLYGON_BIT }
-          glEnable(GL_POLYGON_OFFSET_POINT); { saved by GL_POLYGON_BIT }
-          glPolygonOffset(TextureNode.FdScale.Value, TextureNode.FdBias.Value); { saved by GL_POLYGON_BIT }
+          VarianceShadowMaps notes: can offset be avoided in this case?
+          Practice (on "ATI Mobility Radeon HD 4300 Series") shows that
+          offset is still needed for VSM. Without offset, VSM has some noise,
+          and sunny_street demos have noise on walls. With offset, VSM is perfect. }
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        {$ifndef OpenGLES} // These do not exist on OpenGLES
+        glEnable(GL_POLYGON_OFFSET_LINE);
+        glEnable(GL_POLYGON_OFFSET_POINT);
         {$endif}
+        glPolygonOffset(TextureNode.FdScale.Value, TextureNode.FdBias.Value); { saved by GL_POLYGON_BIT }
 
-          Render(Camera);
+        Render(Camera);
 
-        {$ifndef OpenGLES} // TODO-es
-        glPopAttrib;
-        {$endif}
+        glDisable(GL_POLYGON_OFFSET_FILL);
 
         RenderContext.DepthRange := SavedDepthRange;
 

@@ -288,16 +288,30 @@ var
   var
     CommonSurfaceShader: TCommonSurfaceShaderNode;
     BaseColorFactor: TVector4;
-    BaseColorTexture, NormalTexture: TAbstractX3DTexture2DNode;
-    BaseColorTextureCoordinateId, NormalTextureCoordinateId: Integer;
+    BaseColorTexture, NormalTexture, EmissiveTexture: TAbstractX3DTexture2DNode;
+    BaseColorTextureCoordinateId, NormalTextureCoordinateId, EmissiveTextureCoordinateId: Integer;
     AlphaChannel: TAutoAlphaChannel;
+    //MetallicFactor, RoughnessFactor: TPasGLTFFloat;
+    EmissiveFactor: TVector3;
   begin
     Result := TGltfAppearanceNode.Create(ToX3DName(Material.Name));
 
     BaseColorFactor := Vector4FromGltf(Material.PBRMetallicRoughness.BaseColorFactor);
+    EmissiveFactor := Vector3FromGltf(Material.EmissiveFactor);
+    // MetallicFactor := Material.PBRMetallicRoughness.MetallicFactor;
+    // RoughnessFactor := Material.PBRMetallicRoughness.RoughnessFactor;
+
     CommonSurfaceShader := TCommonSurfaceShaderNode.Create;
     CommonSurfaceShader.DiffuseFactor := BaseColorFactor.XYZ;
     CommonSurfaceShader.AlphaFactor := BaseColorFactor.W;
+    // metallic/roughness conversion idea from X3DOM
+    // CommonSurfaceShader.SpecularFactor := Vector3(
+    //   Lerp(0.04, BaseColorFactor.X, MetallicFactor),
+    //   Lerp(0.04, BaseColorFactor.Y, MetallicFactor),
+    //   Lerp(0.04, BaseColorFactor.Z, MetallicFactor)
+    // );
+    // CommonSurfaceShader.ShininessFactor := 1 - RoughnessFactor;
+    CommonSurfaceShader.EmissiveFactor := EmissiveFactor;
     Result.SetShaders([CommonSurfaceShader]);
 
     Result.DoubleSided := Material.DoubleSided;
@@ -311,6 +325,11 @@ var
       NormalTexture, NormalTextureCoordinateId);
     CommonSurfaceShader.NormalTexture := NormalTexture;
     CommonSurfaceShader.NormalTextureCoordinatesId := NormalTextureCoordinateId;
+
+    ReadTexture(Material.EmissiveTexture,
+      EmissiveTexture, EmissiveTextureCoordinateId);
+    CommonSurfaceShader.EmissiveTexture := EmissiveTexture;
+    CommonSurfaceShader.EmissiveTextureCoordinatesId := EmissiveTextureCoordinateId;
 
     // read alpha channel treatment
     case Material.AlphaMode of
@@ -603,13 +622,13 @@ var
     if Camera.Type_ = TPasGLTF.TCamera.TCameraType.Orthographic then
     begin
       OrthoViewpoint := TOrthoViewpointNode.Create;
-      ParentGroup.FdChildren.Add(OrthoViewpoint);
+      ParentGroup.AddChildren(OrthoViewpoint);
     end else
     begin
       Viewpoint := TViewpointNode.Create;
       if Camera.Perspective.YFov <> 0 then
         Viewpoint.FieldOfView := Camera.Perspective.YFov;
-      ParentGroup.FdChildren.Add(Viewpoint);
+      ParentGroup.AddChildren(Viewpoint);
     end;
   end;
 
@@ -652,7 +671,7 @@ var
       Transform.Translation := Translation;
       Transform.Rotation := Rotation;
       Transform.Scale := Scale;
-      ParentGroup.FdChildren.Add(Transform);
+      ParentGroup.AddChildren(Transform);
 
       if Node.Mesh <> -1 then
         ReadMesh(Node.Mesh, Transform);
